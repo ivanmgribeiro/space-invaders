@@ -19,6 +19,7 @@ public class ImageStore {
         IMAGE_MAP.put("laser-1", new Image(Game.class.getResourceAsStream("/res/laser-1.png")));
         IMAGE_MAP.put("laser-2", new Image(Game.class.getResourceAsStream("/res/laser-2.png")));
         IMAGE_MAP.put("laser-3", new Image(Game.class.getResourceAsStream("/res/laser-3.png")));
+        IMAGE_MAP.put("laser-4", new Image(Game.class.getResourceAsStream("/res/laser-4.png")));
         IMAGE_MAP.put("background", new Image(Game.class.getResourceAsStream("/res/background.png"),
                 Reference.BACKGROUND_WIDTH,
                 Reference.BACKGROUND_HEIGHT,

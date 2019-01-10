@@ -11,13 +11,13 @@ import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import main.entity.Entity;
 import main.entity.EntityAlien;
+import main.entity.EntityLaser;
 import main.entity.EntityPlayer;
 import main.map.ScreenMap;
 import main.util.ImageStore;
 import main.util.Reference;
 
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -101,9 +101,22 @@ public class Game extends Application {
                             Reference.BACKGROUND_WALL_HEIGHT);
                 }
 
-                // draw entities
+                // draw entities and health bars
                 for (Entity entity : map.getEntityList()) {
                     canvas.getGraphicsContext2D().drawImage(entity.getImage(), entity.getX(), entity.getY());
+
+                    if (!(entity instanceof EntityLaser)) {
+                        canvas.getGraphicsContext2D().setFill(Color.RED);
+                        canvas.getGraphicsContext2D().fillRect(entity.getX(),
+                                entity.getY() - Reference.HEALTHBAR_HEIGHT,
+                                entity.getImage().getWidth(),
+                                Reference.HEALTHBAR_HEIGHT);
+                        canvas.getGraphicsContext2D().setFill(Color.GREENYELLOW);
+                        canvas.getGraphicsContext2D().fillRect(entity.getX(),
+                                entity.getY() - Reference.HEALTHBAR_HEIGHT,
+                                entity.getImage().getWidth() * (entity.getHealth() / entity.getMaxHealth()),
+                                Reference.HEALTHBAR_HEIGHT);
+                    }
                 }
 
                 double end = System.nanoTime();
@@ -120,9 +133,92 @@ public class Game extends Application {
     private Runnable updateRunnable = () -> {
         double start = System.currentTimeMillis();
         if (isRunning) {
+            // update entity positions & run any entity-specific update code
             for (Entity entity : map.getEntityList()) {
                 entity.update();
             }
+
+            // fire player lasers if ready
+            for (EntityPlayer player : map.getPlayerList()) {
+                if (player.canFire()) {
+                    map.addEntity(new EntityLaser(1,
+                            player.getX() + player.getImage().getWidth()/2 - Reference.LASER_WIDTH/2,
+                            player.getY() - Reference.LASER_HEIGHT,
+                            0,
+                            -Reference.LASER_SPEED,
+                            false));
+                    player.signalFired();
+                }
+            }
+
+            // fire alien lasers if ready
+            for (EntityAlien alien : map.getAlienList()) {
+                if (alien.canFire()) {
+                    map.addEntity(new EntityLaser(1,
+                            alien.getX() + alien.getImage().getWidth()/2 - Reference.LASER_WIDTH,
+                            alien.getY() + Reference.ALIEN_HEIGHT,
+                            0,
+                            Reference.LASER_SPEED,
+                            true));
+                    alien.signalFired();
+                }
+            }
+
+            // check for collisions
+            // use a list of lists to hold the potential collisions
+            // inner lists are 2 elements and contain entities that might collide
+            // we also only want to bother checking of lasers are colliding with non-lasers
+            // do this in passes
+            // first do coarse collision detection, using distance between objects
+            // don't bother square rooting since we are just comparing
+            List<EntityLaser> laserList = map.getLaserList();
+            List<Entity> nonLaserList = map.getNonLaserList();
+            List<List<Entity>> collisionList = new ArrayList<>();
+            for (EntityLaser laser : laserList) {
+                for (Entity nonLaser : nonLaserList) {
+
+                    // TODO remove this
+                    if (!((laser.getIsAlien() && nonLaser instanceof EntityPlayer)
+                        || (!laser.getIsAlien() && nonLaser instanceof EntityAlien))) {
+                        continue;
+                    }
+
+
+                    double h = laser.getImage().getHeight() + nonLaser.getImage().getHeight();
+                    double w = laser.getImage().getWidth() + nonLaser.getImage().getWidth();
+                    double imgDist = h*h + w*w;
+
+                    double xDiff = laser.getX() - nonLaser.getX();
+                    double yDiff = laser.getY() - nonLaser.getY();
+                    double actDist = xDiff*xDiff + yDiff*yDiff;
+
+                    if (actDist < imgDist) {
+                        List<Entity> collision = Arrays.asList(laser, nonLaser);
+                        collisionList.add(collision);
+                        //System.out.println("potential collision!");
+                    }
+                }
+            }
+
+            // first pass of collision detection finished, now do an accurate pass on what is left
+            for (List<Entity> collision : collisionList) {
+                Entity ent1 = collision.get(0);
+                Entity ent2 = collision.get(1);
+
+                if (ent1.getBoundingBox().collidesWith(ent2.getBoundingBox()) > 0) {
+                    ent1.doDamage(ent2.getDamageDealt());
+                    ent2.doDamage(ent1.getDamageDealt());
+                    System.out.println("collision!");
+                }
+            }
+
+            // remove dead entities
+            for (Entity entity : map.getEntityList()) {
+                if (entity.getHealth() <= 0) {
+                    map.destroyEntity(entity);
+                }
+            }
+
         } else {
             System.out.println("shutting down updater");
             updateExecutor.shutdownNow();
@@ -144,7 +240,7 @@ public class Game extends Application {
         setupScreen();
 
         renderTimer.start();
-        updateExecutor.scheduleAtFixedRate(updateRunnable, 0, 10, TimeUnit.MILLISECONDS);
+        updateExecutor.scheduleAtFixedRate(updateRunnable, 0, Reference.TICK_TIME, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -159,11 +255,11 @@ public class Game extends Application {
         ImageStore.loadImages();
 
         map = new ScreenMap();
-        map.addEntity(new EntityAlien(100, 240, 50, 3 + 4*rand.nextGaussian(), 0));
-        map.addEntity(new EntityAlien(100, 240, 125, 3 + 4*rand.nextGaussian(), 0));
-        map.addEntity(new EntityAlien(100, 240, 200, 3 + 4*rand.nextGaussian(), 0));
-        map.addEntity(new EntityAlien(100, 240, 275, 3 + 4*rand.nextGaussian(), 0));
-        map.addEntity(new EntityPlayer(100, 240, 600, 0, 0));
+        map.addEntity(new EntityAlien(1000, 240, 50, 3 + 4*rand.nextGaussian(), 0));
+        map.addEntity(new EntityAlien(1000, 240, 125, 3 + 4*rand.nextGaussian(), 0));
+        map.addEntity(new EntityAlien(1000, 240, 200, 3 + 4*rand.nextGaussian(), 0));
+        map.addEntity(new EntityAlien(1000, 240, 275, 3 + 4*rand.nextGaussian(), 0));
+        map.addEntity(new EntityPlayer(1000, 240, 550, 0, 0));
 
 
     }
@@ -172,7 +268,7 @@ public class Game extends Application {
         root = new StackPane();
         canvas = new Canvas(Reference.GAME_WIDTH, Reference.GAME_HEIGHT);
         root.getChildren().add(canvas);
-        stage.setScene(new Scene(root, 480, 854));
+        stage.setScene(new Scene(root, Reference.GAME_WIDTH, Reference.GAME_HEIGHT));
 
         stage.getScene().setOnKeyPressed(e -> {
             Reference.keyMap.put(e.getCode(), true);
@@ -180,11 +276,11 @@ public class Game extends Application {
 
         stage.getScene().setOnKeyReleased(e-> {
             Reference.keyMap.put(e.getCode(), false);
-            printMap(Reference.keyMap);
+            //printMap(Reference.keyMap);
         });
 
-        stage.setHeight(720);
-        stage.setWidth(480);
+        stage.sizeToScene();
+        stage.setResizable(false);
         stage.show();
     }
 
